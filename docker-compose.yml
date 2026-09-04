@@ -1,0 +1,76 @@
+# 本地全栈（可选）：TiDB + Agent9 迁移 + Agent9 API。
+#
+# 用法：
+#   1. 在本文件同目录的 .env 中填入 Agent9 需要的密钥（OPENAI_API_KEY、WORKSPACE_KEK 等，
+#      参考 ../agent9/.env.example；DATABASE_URL 会由 compose 覆盖指向 tidb 服务）
+#   2. docker compose up -d --build
+#   3. 打开 http://localhost:5172/livez 确认就绪，然后 pnpm seed / pnpm console
+#
+# 注意：Agent9 官方镜像在 Apple Silicon 上需以 linux/amd64 模拟运行（较慢，但可用）。
+
+name: tidbsa
+
+services:
+  tidb:
+    image: pingcap/tidb@sha256:a40b5b4fe4c08ed9dae0ccf7c7d15f50aae9aa5613189e8991ec55e22b55717c
+    command: ["--store=tikv", "--path=/tmp/tidb"]
+    ports:
+      - "4000:4000"
+    healthcheck:
+      test: ["CMD", "mysql", "-h127.0.0.1", "-P4000", "-uroot", "-e", "SELECT 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+
+  db-init:
+    # Prisma migrate deploy 不会创建数据库，这里先建好 agent9 库
+    image: mysql:8.0
+    entrypoint: ["sh", "-c", "until mysql -h tidb -P 4000 -uroot -e 'SELECT 1' >/dev/null 2>&1; do sleep 2; done; mysql -h tidb -P 4000 -uroot -e 'CREATE DATABASE IF NOT EXISTS agent9'"]
+    depends_on:
+      tidb:
+        condition: service_healthy
+
+  migrate:
+    build:
+      context: ../agent9
+      dockerfile: deploy/prisma-migration/Dockerfile
+    environment:
+      DATABASE_URL: mysql://root@tidb:4000/agent9
+      TIDB_SSL: "off"
+    depends_on:
+      db-init:
+        condition: service_completed_successfully
+
+  agent9:
+    build:
+      context: ../agent9
+      platform: linux/amd64
+    platform: linux/amd64
+    ports:
+      - "5172:5172"
+    environment:
+      NODE_ENV: development
+      PORT: "5172"
+      HOST: 0.0.0.0
+      DATABASE_URL: mysql://root@tidb:4000/agent9
+      TIDB_SSL: "off"
+      SANDBOX_PROVIDER: local
+      WORKSPACE_ROOT: /tmp/agent9-workspaces
+      CONSOLE_SERVE_MODE: embedded
+      # 以下密钥按需从 .env 注入（compose 自动读取同目录 .env）
+      WORKSPACE_KEK: ${WORKSPACE_KEK:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_BASE_URL: ${OPENAI_BASE_URL:-}
+      OPENAI_MODEL: ${OPENAI_MODEL:-gpt-5.6-luna}
+      SESSION_SECRET: ${SESSION_SECRET:-tidbsa-local-session-secret}
+      MEM9_API_URL: ${MEM9_API_URL:-https://api.mem9.ai}
+      MEM9_ADMIN_API_URL: ${MEM9_ADMIN_API_URL:-https://console-api.mem9.ai}
+      EXA_API_KEY: ${EXA_API_KEY:-}
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:5172/livez').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 20

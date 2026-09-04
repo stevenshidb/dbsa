@@ -1,0 +1,32 @@
+{
+  "name": "TiDB 售前助手",
+  "model": "DeepSeek-V4-Flash",
+  "config": {
+    "runtime": {
+      "backend": "pi"
+    },
+    "memory": {
+      "enabled": true,
+      "provider": "mem9",
+      "mem9": {}
+    },
+    "sessionRecall": {
+      "enabled": true
+    },
+    "knowledgeBase": {
+      "enabled": true
+    },
+    "generatedMedia": {
+      "enabled": true
+    },
+    "notion": {
+      "enabled": true
+    },
+    "tools": {
+      "managed": []
+    }
+  },
+  "memoryCredential": {
+    "mode": "provision"
+  }
+}

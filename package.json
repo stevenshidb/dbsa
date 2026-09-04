@@ -1,0 +1,15 @@
+{
+  "name": "tidbsa",
+  "private": true,
+  "version": "0.1.0",
+  "description": "TiDB Pre-Sales Agent demo built on Agent9",
+  "packageManager": "pnpm@11.9.0",
+  "scripts": {
+    "console": "pnpm --filter @tidbsa/console dev",
+    "cli": "node cli/bin/tidbsa.mjs",
+    "databend:bridge": "node apps/databend-bridge/bin/bridge.mjs",
+    "databend:selftest": "node apps/databend-bridge/scripts/selftest.mjs",
+    "seed": "node scripts/seed.mjs",
+    "demo": "node scripts/demo.mjs"
+  }
+}

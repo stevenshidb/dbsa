@@ -1,0 +1,14 @@
+{
+  "name": "@tidbsa/databend-bridge",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Databend Streamable HTTP MCP bridge for Agent9 (Path A)",
+  "scripts": {
+    "start": "node bin/bridge.mjs",
+    "selftest": "node scripts/selftest.mjs"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
