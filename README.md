@@ -19,6 +19,7 @@ pnpm seed             # 一键创建「TiDB 售前助手」Agent + 会话 + 定�
 pnpm demo             # 跑一遍脚本化售前流程（需求分析 → 方案生成 → 制品列表）
 pnpm cli chat "客户想从 MySQL 迁移到 TiDB，帮我梳理 POC 方案"   # 命令行问答
 pnpm databend:bridge  # 启动 Databend MCP 桥（路径 A，先填 .env 的 DATABEND_DSN）
+pnpm lake:bridge      # 启动 TiDB Cloud Lake MCP 桥（路径 A，先填 .env 的 LAKE_DSN）
 ```
 
 ## 目录
@@ -30,7 +31,8 @@ tidbsa/
 │   └── agent9-api-map.md    # Agent9 能力 → 售前场景 → API 映射表
 ├── packages/client/         # Agent9 API 客户端（零依赖 ESM，Web/CLI 共用）
 ├── apps/console/            # Web Demo（Vite + React，含 Mock 模式）
-│   └── databend-bridge/     # Databend → MCP(streamable HTTP) 桥（零依赖 Node）
+├── apps/databend-bridge/    # Databend → MCP(streamable HTTP) 桥（零依赖 Node）
+├── apps/lake-bridge/        # TiDB Cloud Lake → MCP(streamable HTTP) 桥（零依赖 Node）
 ├── cli/                     # 命令行 Demo
 ├── config/
 │   ├── agent-tidb-presales.json   # Agent 全能力配置模板
@@ -49,7 +51,7 @@ tidbsa/
 | Live | 真实调用 Agent9 API | 已部署的 Agent9 + API Key |
 | 全栈本地 | docker compose 起 TiDB + Agent9（Linux/amd64） | Docker（Apple Silicon 较慢） |
 
-当前接入环境：**staging Agent9**（`https://us-west-2.staging.agent.mem9.ai`）。历史的一台 Linux 演示服务器（`16.162.21.58`）已停用，相关部署记录保留在 [docs/deployment-linux.md](docs/deployment-linux.md) 仅供参考。
+当前接入环境：**staging Agent9**（`https://us-west-2.staging.agent.mem9.ai`）。
 
 详细规划见 [docs/architecture.md](docs/architecture.md)，能力映射见 [docs/agent9-api-map.md](docs/agent9-api-map.md)。
 
@@ -60,9 +62,12 @@ tidbsa/
 - **Agent 管理**：「Agent 管理」页支持列表查看、创建、重命名、归档（删除）。
 - **Skill 上传**：「Skills」页上传 SKILL ZIP（需 YAML frontmatter，见 `config/skill-tidb-presales/SKILL.md`），自动确认后安装到当前 Agent。
 - **语音输入**：聊天框底部「🎤 语音」开启中文连续识别（Chrome/Edge，需麦克风权限），边说边转文字，确认后回车或点发送即可与 Agent 对话。
-- **Databend 数据源（MCP）**：`apps/databend-bridge` 用 DSN 连接 Databend 并提供
-  streamable HTTP MCP 端点；在「专家·连接器 → 连接器」一键注册/激活/挂载到 Agent。
-  详细步骤见 [docs/databend-mcp-path-a.md](docs/databend-mcp-path-a.md)。
+- **客户档案 · Drive 工作区（P0）**：每个“项目/文件夹”可打开为客户档案页，维护客户元数据；页面聚合该客户所有会话、自动归档会话内 Drive 文件（预览/搜索/下载），并可一键把资料文件上传后交给 Agent 阅读分析。
+- **专家记忆 · 知识源（P1.5）**：专家详情页可查看/开关 Agent 的 Mem9 客户记忆、会话召回、团队 KB 与 Notion，并支持绑定/轮换 Mem9 Key；回答引用记忆或团队资料时，消息下方会显示可追溯来源。
+- **TiDB Cloud Lake 数据源（MCP）**：`apps/lake-bridge` 用 `lake://` DSN 连接
+  TiDB Cloud Lake（官方 LakeSQL REST 协议：login → /v1/query → refresh，零 Python
+  依赖），同样提供 streamable HTTP MCP 端点；在「专家·连接器 → 连接器」一键
+  注册/激活/挂载到 Agent。详细步骤见 [docs/lake-mcp-path-a.md](docs/lake-mcp-path-a.md)。
 
 ## 常见问题
 

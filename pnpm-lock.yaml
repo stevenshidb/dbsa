@@ -38,6 +38,8 @@ importers:
 
   apps/databend-bridge: {}
 
+  apps/lake-bridge: {}
+
   packages/client: {}
 
 packages:

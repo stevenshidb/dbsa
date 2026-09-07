@@ -7,13 +7,16 @@ import Connectors from './connectors';
 import AgentEditor from './agent-editor';
 import ArtifactCard from './artifacts';
 import { CustomToolsPage, WebhookPage } from './tooling';
+import CustomerDossier from './customer-dossier';
+import MemoryKnowledgePanel from './memory-kb';
 
 const LS_SETTINGS = 'tidbsa.settings.v1';
 const LS_SESSIONS = 'tidbsa.sessions.v1'; // { [agentId]: [{sessionId,name,createdAt}] }
-const LS_PROJECTS = 'tidbsa.projects.v1'; // { [agentId]: { folders:[{id,name}], sessionFolder:{[sessionId]:folderId} } }
+const LS_PROJECTS = 'tidbsa.projects.v1'; // { [agentId]: { folders, sessionFolder, profiles } }
 const LS_SCHEDMETA = 'tidbsa.schedmeta.v1'; // { [schedulerId]: { notify, label } }
 const LS_EXPERTS = 'tidbsa.experts.v1'; // 专家场景（可编辑，本地保存）
 const LS_REMINDERS_READ = 'tidbsa.reminders.read.v1'; // { lastReadAt }
+const LS_TRANSCRIPTS = 'tidbsa.transcripts.v2'; // { [agentId]: { [sessionId]: messages[] } }
 const MAX_ATTACHMENTS = 3;
 const MODELS = ['gpt-5.6-sol', 'gpt-5.6-terra', 'gpt-5.6-luna', 'claude-haiku-4-5', 'claude-sonnet-5', 'claude-opus-5', 'DeepSeek-V4-Flash'];
 const DOW = { 0: '周日', 1: '周一', 2: '周二', 3: '周三', 4: '周四', 5: '周五', 6: '周六' };
@@ -22,7 +25,7 @@ let msgSeq = 0;
 const newMsgId = () => `m_${Date.now().toString(36)}_${(msgSeq += 1)}`;
 
 /** 未读提醒 = 已生成新会话（result.sessionId）且触发时间晚于上次已读时间。 */
-export const computeUnread = (fires, lastReadAt) =>
+const computeUnread = (fires, lastReadAt) =>
   fires.filter(
     (f) => f.resultSessionId && (!lastReadAt || new Date(f.createdAt) > new Date(lastReadAt)),
   ).length;
@@ -35,6 +38,24 @@ function loadJson(key, fallback) {
   }
 }
 
+function saveTranscript(agentId, sessionId, messages) {
+  if (!agentId || !sessionId) return;
+  try {
+    const all = loadJson(LS_TRANSCRIPTS, {});
+    const byAgent = all[agentId] ?? {};
+    byAgent[sessionId] = (messages ?? []).slice(-200);
+    all[agentId] = byAgent;
+    localStorage.setItem(LS_TRANSCRIPTS, JSON.stringify(all));
+  } catch {
+    /* 本地缓存失败不影响主流程 */
+  }
+}
+
+function loadTranscript(agentId, sessionId) {
+  if (!agentId || !sessionId) return null;
+  return loadJson(LS_TRANSCRIPTS, {})[agentId]?.[sessionId] ?? null;
+}
+
 function friendlyError(err) {
   const m = err?.message ?? String(err);
   if (m.startsWith('无法连接 Agent9')) return m;
@@ -42,6 +63,46 @@ function friendlyError(err) {
     return `无法连接 Agent9（${m}）。请打开左下角「配置 → 设置」检查地址与密钥。`;
   }
   return m;
+}
+
+/** 把一个 PublicTurn 里可展示的“记忆/团队知识库”来源提取出来。 */
+function sourcesFromTurn(turn) {
+  const sources = [];
+  for (const op of turn?.operations ?? []) {
+    if (op.kind === 'memory.recall' && op.status === 'succeeded') {
+      for (const item of op.memorySourceAudit?.items ?? []) {
+        const src = item.source;
+        if (!src || src.state !== 'resolved' || !src.session?.sessionId) continue;
+        sources.push({
+          id: `mem-${op.id}-${sources.length}`,
+          type: 'memory',
+          title: src.session.displayTitle ?? '历史会话记忆',
+          preview: String(item.content ?? '').slice(0, 160),
+          sessionId: src.session.sessionId,
+          projectId: src.session.projectId,
+          messageId: src.message?.messageId,
+          sourcePreview: src.message?.contentPreview,
+        });
+        if (sources.length >= 6) break;
+      }
+    } else if (op.kind === 'kb.search' || op.kind === 'kb.search_collections') {
+      const details = op.output?.details ?? op.output ?? {};
+      const citations = Array.isArray(details.citations) ? details.citations : [];
+      for (const c of citations.slice(0, 4)) {
+        const title = c.documentTitle || c.collectionName || '团队知识库文档';
+        sources.push({
+          id: `kb-${op.id}-${sources.length}`,
+          type: 'kb',
+          title: String(title).slice(0, 120),
+          preview: String(c.snippet ?? '').slice(0, 160),
+          uri: c.sourceUri ?? null,
+          resourceId: c.resourceId ?? null,
+        });
+      }
+      if (sources.length >= 6) break;
+    }
+  }
+  return sources.slice(0, 6);
 }
 
 async function fileSha256(file) {
@@ -69,7 +130,7 @@ const CAPABILITIES = [
 ];
 
 const ChatMessage = memo(function ChatMessage(props: any) {
-  const { msg, copied, editing, draft, onCopy, onEdit, onDraft, onSave, onCancel, client, resolveUrl, live, onError } = props;
+  const { msg, copied, editing, draft, onCopy, onEdit, onDraft, onSave, onCancel, client, resolveUrl, live, onError, onOpenSource } = props;
   const isUser = msg.role === 'user';
   const time = msg.createdAt
     ? new Date(msg.createdAt).toLocaleString('zh-CN', {
@@ -129,6 +190,16 @@ const ChatMessage = memo(function ChatMessage(props: any) {
                 ))}
               </div>
             )}
+            {!isUser && msg.sources?.length > 0 && (
+              <div className="msg-sources">
+                <span className="msg-sources-label">📚 来源：</span>
+                {msg.sources.map((s) => (
+                  <button key={s.id ?? `${s.type}-${s.title}`} className="source-chip" onClick={() => onOpenSource?.(s)} title={s.preview ?? ''}>
+                    {s.type === 'memory' ? '🧠' : '📄'} {s.title}
+                  </button>
+                ))}
+              </div>
+            )}
           </>
         )}
       </div>
@@ -161,6 +232,7 @@ export default function App() {
   const [notice, setNotice] = useState('');
   const [nav, setNav] = useState('chat'); // chat | scheduled | plugins
   const [expanded, setExpanded] = useState({});
+  const [showMore, setShowMore] = useState({});
   const [configOpen, setConfigOpen] = useState(false);
   const [configTab, setConfigTab] = useState('agents');
   const [schedulers, setSchedulers] = useState([]);
@@ -195,7 +267,7 @@ export default function App() {
   const [agentEditorBack, setAgentEditorBack] = useState(null);
   const [reminders, setReminders] = useState([]);
   const [unreadCount, setUnreadCount] = useState(0);
-  const [visibleCount, setVisibleCount] = useState(40); // 历史消息分批渲染窗口
+  const [visibleCount, setVisibleCount] = useState(5); // 历史消息分批渲染窗口（初始 5 条）
   const [copiedKey, setCopiedKey] = useState(null);
   const [voiceOn, setVoiceOn] = useState(false);
   const [editingMsg, setEditingMsg] = useState(null); // { msg, draft }
@@ -211,10 +283,14 @@ export default function App() {
   const [expertStats, setExpertStats] = useState({});
   const bottomRef = useRef(null);
   const fileRef = useRef(null);
+  const threadRef = useRef(null);
+  const olderBusyRef = useRef(false);
   const voiceRecRef = useRef(null);
   const voiceBaseRef = useRef('');
   const skillFileRef = useRef(null);
   const historyCache = useRef(new Map()); // sessionId -> messages[]
+  const fullHistoryLoaded = useRef(new Set()); // 已从服务端拉过完整历史的 sessionId
+  const selectedSidRef = useRef('');
   const sendTurnRef = useRef(null);
   const editingMsgRef = useRef(null);
 
@@ -287,6 +363,7 @@ export default function App() {
       folders: p.folders ?? [],
       sessionFolder: p.sessionFolder ?? {},
       unfiledName: p.unfiledName ?? '未分类',
+      profiles: p.profiles ?? {},
     };
   };
   const persistProjects = (agentId, data) => {
@@ -316,12 +393,13 @@ export default function App() {
   }
 
   function selectAgent(agentId) {
+    selectedSidRef.current = '';
     setSelectedAgentId(agentId);
     setActiveBriefing(null);
     setSelectedSession(null);
     setMessages([]);
     setAttachments([]);
-    setVisibleCount(40);
+    setVisibleCount(5);
     setSessions(loadJson(LS_SESSIONS, {})[agentId] ?? []);
     setProjects(loadProjects(agentId));
     setNav('chat');
@@ -395,74 +473,123 @@ export default function App() {
       persistProjects(selectedAgentId, data);
     }
     setSelectedSession(s);
+    selectedSidRef.current = s.sessionId ?? s.id ?? '';
     setMessages([]);
     setAttachments([]);
-    setVisibleCount(40);
+    setVisibleCount(5);
     setNav('chat');
     return s;
   }
 
+  /** 拉取一个会话的全部 Turn 并写入内存/本地缓存；不负责切换页面或设置 messages。 */
+  async function fetchSessionBundle(sessionId) {
+    if (fullHistoryLoaded.current.has(sessionId)) {
+      const existing = historyCache.current.get(sessionId);
+      if (existing) {
+        return { msgs: existing, turnIds: existing.filter((m) => m.turnId).map((m) => m.turnId) };
+      }
+    }
+    const res = await client.listTurns(sessionId);
+    const turns = res?.turns ?? res ?? [];
+    const msgs = [];
+    for (const t of turns) {
+      msgs.push({
+        id: t.userMessage?.id ?? newMsgId(),
+        role: 'user',
+        text: t.userMessage?.content ?? '',
+        createdAt: t.userMessage?.createdAt,
+        final: true,
+      });
+      if (t.assistantMessage) {
+        const turnSources = sourcesFromTurn(t);
+        msgs.push({
+          id: t.assistantMessage.id ?? newMsgId(),
+          turnId: t.id,
+          role: 'assistant',
+          text: t.assistantMessage.content ?? '',
+          createdAt: t.assistantMessage.createdAt,
+          final: true,
+          ops: (t.operations ?? [])
+            .filter((o) => o.kind !== 'llm.complete' && o.status === 'succeeded')
+            .slice(0, 6)
+            .map((o) => ({ label: o.kind })),
+          ...(turnSources.length ? { sources: turnSources } : {}),
+        });
+      }
+    }
+    historyCache.current.set(sessionId, msgs);
+    fullHistoryLoaded.current.add(sessionId);
+    saveTranscript(selectedAgentId, sessionId, msgs);
+    return {
+      msgs,
+      turnIds: turns.map((t) => t.id).filter(Boolean),
+    };
+  }
+
   async function loadSession(rowOrSession) {
     const sessionId = rowOrSession.sessionId ?? rowOrSession.id;
+    selectedSidRef.current = sessionId;
     setSelectedSession({ sessionId });
     setNav('chat');
-    setVisibleCount(40);
+    setVisibleCount(5); // 先只展示最近 5 条，向上滚动时再分批加载更早内容
     if (!live) {
       setSelectedSession(rowOrSession.sessionId ? rowOrSession : new MockSession(rowOrSession.sessionId ?? rowOrSession));
       setMessages([]);
       return;
     }
     const cached = historyCache.current.get(sessionId);
-    if (cached) {
-      setMessages(cached);
-      return;
+    const local = cached ? null : loadTranscript(selectedAgentId, sessionId);
+    const immediate = cached ?? local;
+    if (immediate) {
+      // 命中本地/内存记录：立即展示最近 5 条，不出现“正在加载…”
+      setMessages(immediate);
+    } else {
+      setMessages([{ id: newMsgId(), role: 'assistant', text: '⏳ 正在加载会话历史…', createdAt: new Date().toISOString(), final: true }]);
     }
-    setMessages([{ id: newMsgId(), role: 'assistant', text: '⏳ 正在加载会话历史…', createdAt: new Date().toISOString(), final: true }]);
     try {
-      const res = await client.listTurns(sessionId);
-      const turns = res?.turns ?? res ?? [];
-      const msgs = [];
-      for (const t of turns) {
-        msgs.push({
-          id: t.userMessage?.id ?? newMsgId(),
-          role: 'user',
-          text: t.userMessage?.content ?? '',
-          createdAt: t.userMessage?.createdAt,
-          final: true,
-        });
-        if (t.assistantMessage) {
-          msgs.push({
-            id: t.assistantMessage.id ?? newMsgId(),
-            turnId: t.id,
-            role: 'assistant',
-            text: t.assistantMessage.content ?? '',
-            createdAt: t.assistantMessage.createdAt,
-            final: true,
-            ops: (t.operations ?? [])
-              .filter((o) => o.kind !== 'llm.complete' && o.status === 'succeeded')
-              .slice(0, 6)
-              .map((o) => ({ label: o.kind })),
-          });
-        }
-      }
-      const artMap = await loadSessionArtifacts(
-        sessionId,
-        turns.map((t) => t.id).filter(Boolean),
-      );
-      for (const m of msgs) {
-        if (m.role === 'assistant' && m.turnId && artMap[m.turnId]?.length) {
-          m.artifacts = artMap[m.turnId];
-        }
-      }
-      historyCache.current.set(sessionId, msgs);
+      const { msgs, turnIds } = await fetchSessionBundle(sessionId);
+      if (selectedSidRef.current !== sessionId) return;
       setMessages(msgs);
+      setVisibleCount(5);
+
+      // 产物放到后台加载：先出文本，产物到了再补卡片，不阻塞首屏。
+      const artMap = await loadSessionArtifacts(sessionId, turnIds);
+      if (selectedSidRef.current !== sessionId || Object.keys(artMap).length === 0) return;
+      const attach = (arr) =>
+        arr.map((m) => {
+          if (m.role !== 'assistant' || !m.turnId || !artMap[m.turnId]?.length) return m;
+          return { ...m, artifacts: artMap[m.turnId] };
+        });
+      const enriched = attach(msgs);
+      historyCache.current.set(sessionId, enriched);
+      saveTranscript(selectedAgentId, sessionId, enriched);
+      setMessages((prev) => {
+        const next = attach(prev);
+        if (next.length !== prev.length || prev.some((m, i) => next[i] !== m)) {
+          historyCache.current.set(sessionId, next);
+          saveTranscript(selectedAgentId, sessionId, next);
+        }
+        return next;
+      });
     } catch (err) {
-      setMessages([{ id: newMsgId(), role: 'assistant', text: `⚠ 加载会话失败：${friendlyError(err)}`, createdAt: new Date().toISOString(), final: true }]);
-      setNotice(`加载会话失败：${friendlyError(err)}`);
+      if (immediate) {
+        setNotice(`后台刷新历史失败，已展示本地最近记录：${friendlyError(err)}`);
+      } else {
+        setMessages([{ id: newMsgId(), role: 'assistant', text: `⚠ 加载会话失败：${friendlyError(err)}`, createdAt: new Date().toISOString(), final: true }]);
+        setNotice(`加载会话失败：${friendlyError(err)}`);
+      }
     }
   }
 
-  async function sendTurn(text, sceneId = '', { silentUser = false } = {}) {
+  function openMessageSource(source) {
+    if (source?.type === 'memory' && source.sessionId) {
+      loadSession({ sessionId: source.sessionId });
+    } else if (source?.uri) {
+      window.open(source.uri, '_blank', 'noopener');
+    }
+  }
+
+  async function sendTurn(text, sceneId = '', { silentUser = false, directFileIds = [] } = {}) {
     if (!text?.trim() || busy) return;
     setBusy(true);
     setNotice('');
@@ -490,7 +617,12 @@ export default function App() {
       bot = { ...bot, ...patch };
       setMessages((prev) => [...prev.slice(0, -1), bot]);
     };
-    const userFileIds = live ? attachments.filter((a) => a.id).map((a) => a.id) : undefined;
+    const userFileIds =
+      directFileIds.length > 0
+        ? directFileIds
+        : live
+          ? attachments.filter((a) => a.id).map((a) => a.id)
+          : undefined;
     const turnText = live ? text : `【附件】${attNames.join('、')}\n\n${text}`;
     let turnId = '';
     try {
@@ -514,20 +646,35 @@ export default function App() {
       }
       updateBot({ final: true, text: bot.text || '（未收到回复）' });
       setAttachments([]);
+      let turnSources = [];
       if (!live) {
+        turnSources = [
+          { id: 'mock-mem-1', type: 'memory', title: '客户历史会话（Mock）', preview: '此前确认：客户优先评估 HTAP 与 MySQL 兼容性。', sessionId: '' },
+          { id: 'mock-kb-1', type: 'kb', title: 'TiDB 迁移最佳实践（Mock 团队资料）', preview: '建议先做影子库全量校验再灰度切换。' },
+        ];
         updateBot({
           artifacts: [
             { artifactId: 'art_mock_1', revisionId: 'rev_mock_1', name: '方案概要.md', kind: 'document', mimeType: 'text/markdown', byteSize: 2048 },
             { artifactId: 'art_mock_2', revisionId: 'rev_mock_2', name: '架构图.png', kind: 'image', mimeType: 'image/png', byteSize: 65536 },
           ],
+          sources: turnSources,
         });
       } else if (turnId) {
+        try {
+          const turnRes = await client.getTurn(sid, turnId);
+          const turn = turnRes?.turn ?? turnRes;
+          turnSources = sourcesFromTurn(turn);
+          if (turnSources.length) updateBot({ sources: turnSources });
+        } catch {
+          // 引用增强失败不影响正文
+        }
         const artMap = await loadSessionArtifacts(sid, [turnId]);
         if (artMap[turnId]?.length) updateBot({ artifacts: artMap[turnId] });
       }
       setMessages((prev) => {
         const next = [...prev.slice(0, -1), bot];
         historyCache.current.set(sid, next);
+        saveTranscript(selectedAgentId, sid, next);
         return next;
       });
     } catch (err) {
@@ -607,6 +754,22 @@ export default function App() {
     setInput('');
   }
 
+  async function uploadUserFile(file) {
+    const sha256 = await fileSha256(file);
+    if (!live) return { id: null, name: file.name };
+    const caps = await client.uploadCapabilities();
+    const maxBytes = caps?.capabilities?.maxUploadBytes ?? 50 * 1024 * 1024;
+    if (file.size > maxBytes) throw new Error(`文件超过上限 ${Math.round(maxBytes / 1024 / 1024)} MiB`);
+    const created = await client.createUserFileUpload(
+      { originalName: file.name, byteSize: file.size, sha256, contentType: file.type || null },
+      { idempotencyKey: newIdempotencyKey('tidbsa-file-') },
+    );
+    const upload = created?.upload ?? created;
+    if (upload.mode !== 'agent9') throw new Error(`当前后端为 ${upload.mode} 上传模式，Demo 支持 agent9 内联模式`);
+    await client.putUserFileContent(upload.uploadId, await file.arrayBuffer(), sha256);
+    return { id: upload.uploadId, name: file.name };
+  }
+
   async function handleFiles(files) {
     const picked = [...files].slice(0, MAX_ATTACHMENTS - attachments.length);
     if (!picked.length) return;
@@ -615,25 +778,10 @@ export default function App() {
       next.push({ name: file.name, status: '读取中' });
       setAttachments([...next]);
       try {
-        const sha256 = await fileSha256(file);
-        if (live) {
-          const caps = await client.uploadCapabilities();
-          const maxBytes = caps?.capabilities?.maxUploadBytes ?? 50 * 1024 * 1024;
-          if (file.size > maxBytes) throw new Error(`文件超过上限 ${Math.round(maxBytes / 1024 / 1024)} MiB`);
-          const created = await client.createUserFileUpload(
-            { originalName: file.name, byteSize: file.size, sha256, contentType: file.type || null },
-            { idempotencyKey: newIdempotencyKey('tidbsa-file-') },
-          );
-          const upload = created?.upload ?? created;
-          if (upload.mode !== 'agent9') throw new Error(`当前后端为 ${upload.mode} 上传模式，Demo 支持 agent9 内联模式`);
-          await client.putUserFileContent(upload.uploadId, await file.arrayBuffer(), sha256);
-          const done = next.find((a) => a.name === file.name);
-          done.id = upload.uploadId;
-          done.status = '就绪';
-        } else {
-          const done = next.find((a) => a.name === file.name);
-          done.status = '就绪(Mock)';
-        }
+        const uploaded = await uploadUserFile(file);
+        const done = next.find((a) => a.name === file.name);
+        done.id = uploaded.id;
+        done.status = live ? '就绪' : '就绪(Mock)';
         setAttachments([...next]);
       } catch (err) {
         const fail = next.find((a) => a.name === file.name);
@@ -645,6 +793,40 @@ export default function App() {
 
   function removeAttachment(name) {
     setAttachments((prev) => prev.filter((a) => a.name !== name));
+  }
+
+  async function analyzeDriveFile(folderId, file) {
+    setNotice(`正在把「${file.name}」交给 Agent 分析…`);
+    try {
+      if (!live) {
+        const session = await createSession(folderId);
+        if (session) await sendTurn(`请分析客户资料「${file.name}」（Mock 资料库）。输出要点、影响和建议下一步。`);
+        return;
+      }
+      if (!client.projectId) {
+        const projects = await client.listProjects();
+        client.projectId = (projects?.projects ?? projects ?? [])[0]?.projectId;
+      }
+      if (!client.projectId) throw new Error('未解析到 Agent9 项目');
+      const dl = await client.mintDriveDownloadUrl(client.projectId, file.relPath);
+      if (!dl?.url) throw new Error('未拿到文件下载票据');
+      const response = await fetch(resolveUrl(dl.url));
+      if (!response.ok) throw new Error(`读取文件失败（HTTP ${response.status}）`);
+      const bytes = await response.arrayBuffer();
+      const ext = (file.name.split('.').pop() ?? '').toLowerCase();
+      const mime = { pdf: 'application/pdf', png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', webp: 'image/webp', md: 'text/markdown', txt: 'text/plain', csv: 'text/csv', docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }[ext] || 'application/octet-stream';
+      const uploaded = await uploadUserFile(new File([bytes], file.name, { type: mime }));
+      const session = await createSession(folderId);
+      if (!session) throw new Error('创建客户会话失败');
+      await sendTurn(
+        `请先阅读客户资料「${file.name}」，然后输出：\n1) 这份资料的关键信息摘要；\n2) 对 TiDB 售前推进的影响/机会点；\n3) 建议的下一步动作或需要澄清的问题。`,
+        '',
+        { directFileIds: uploaded.id ? [uploaded.id] : [] },
+      );
+      setNotice(`已用 Agent 分析「${file.name}」，结果见右侧对话。`);
+    } catch (err) {
+      setNotice(`用 Agent 分析失败：${friendlyError(err)}`);
+    }
   }
 
   // ---- 消息悬停操作：复制 / 编辑 ----
@@ -685,12 +867,40 @@ export default function App() {
 
   // ---- 项目/文件夹（原地编辑） ----
   function createFolder() {
-    const folder = { id: `folder_${Math.random().toString(36).slice(2, 8)}`, name: '新文件夹' };
-    const data = { ...projects, folders: [...projects.folders, folder] };
+    const folder = { id: `folder_${Math.random().toString(36).slice(2, 8)}`, name: '新客户' };
+    const data = {
+      ...projects,
+      folders: [...projects.folders, folder],
+      profiles: {
+        ...(projects.profiles ?? {}),
+        [folder.id]: { company: '', industry: '', stage: '初步接触', status: '跟进中', owner: '', notes: '' },
+      },
+    };
     setProjects(data);
     persistProjects(selectedAgentId, data);
     setEditingFolderId(folder.id);
-    setFolderDraft('新文件夹');
+    setFolderDraft('新客户');
+  }
+
+  function saveCustomerProfile(folderId, patch) {
+    const profiles = {
+      ...(projects.profiles ?? {}),
+      [folderId]: { ...(projects.profiles?.[folderId] ?? {}), ...patch },
+    };
+    const data = { ...projects, profiles };
+    setProjects(data);
+    persistProjects(selectedAgentId, data);
+  }
+
+  function renameFolderDirect(folderId, name) {
+    const clean = String(name ?? '').trim();
+    if (!clean) return;
+    const data = {
+      ...projects,
+      folders: projects.folders.map((f) => (f.id === folderId ? { ...f, name: clean } : f)),
+    };
+    setProjects(data);
+    persistProjects(selectedAgentId, data);
   }
 
   function startFolderEdit(folder) {
@@ -766,6 +976,25 @@ export default function App() {
 
   const folderSessions = (folderId) => sessions.filter((s) => projects.sessionFolder[s.sessionId] === folderId);
   const unfiledSessions = sessions.filter((s) => !projects.sessionFolder[s.sessionId]);
+  const SESSION_PREVIEW_LIMIT = 3;
+
+  const renderSessionPreview = (key, items) => {
+    const isExpanded = !!showMore[key];
+    const visible = isExpanded ? items : items.slice(0, SESSION_PREVIEW_LIMIT);
+    return (
+      <>
+        {visible.map(renderSessionRow)}
+        {items.length > SESSION_PREVIEW_LIMIT && (
+          <button
+            className="more-sessions"
+            onClick={() => setShowMore((prev) => ({ ...prev, [key]: !isExpanded }))}
+          >
+            {isExpanded ? '收起，只显示 3 个' : `展开全部 ${items.length} 个会话`}
+          </button>
+        )}
+      </>
+    );
+  };
 
   // ---- 定时调度 ----
   const saveSchedMeta = (id, meta) => {
@@ -1490,6 +1719,19 @@ export default function App() {
                       })()}
                     </div>
                   )}
+                  {editingExpert !== exp.id &&
+                    (() => {
+                      const real = agents.find((x) => x.name === a.name && x.status === 'active');
+                      return real ? (
+                        <MemoryKnowledgePanel
+                          agent={real}
+                          client={client}
+                          live={live}
+                          onUpdated={refreshAgents}
+                          onNotice={setNotice}
+                        />
+                      ) : null;
+                    })()}
                 </>
               )}
               <div className="actions">
@@ -1740,6 +1982,31 @@ export default function App() {
   }, [live]);
 
   useEffect(() => {
+    if (!live || !selectedAgentId || sessions.length === 0) return undefined;
+    // 列表渲染后先在后台把近期会话历史拉进缓存，用户点击时即可秒开。
+    let cancelled = false;
+    const timer = window.setTimeout(() => {
+      void (async () => {
+        for (const session of sessions.slice(0, 10)) {
+          if (cancelled) return;
+          const sid = session.sessionId ?? session.id;
+          if (!sid || historyCache.current.has(sid) || fullHistoryLoaded.current.has(sid)) continue;
+          try {
+            await fetchSessionBundle(sid);
+          } catch {
+            // 预取失败不提示，点击时会再按原路径加载。
+          }
+        }
+      })();
+    }, 900);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [live, selectedAgentId, sessions]);
+
+  useEffect(() => {
     loadReminders();
     const timer = setInterval(() => loadReminders(), 60_000);
     return () => clearInterval(timer);
@@ -1766,6 +2033,33 @@ export default function App() {
 
   const currentAgent = agents.find((a) => a.agentId === selectedAgentId);
 
+  const renderCustomerDossier = (folderId) => {
+    const folder = projects.folders.find((f) => f.id === folderId);
+    if (!folder) {
+      return (
+        <main className="page">
+          <p className="hint">客户档案不存在或已被删除。</p>
+        </main>
+      );
+    }
+    return (
+      <CustomerDossier
+        client={client}
+        live={live}
+        folder={folder}
+        profile={projects.profiles?.[folderId] ?? {}}
+        sessions={folderSessions(folderId)}
+        onRename={(name) => renameFolderDirect(folderId, name)}
+        onSaveProfile={(patch) => saveCustomerProfile(folderId, patch)}
+        onOpenSession={(s) => loadSession(s)}
+        onNewSession={() => createSession(folderId)}
+        onAnalyzeFile={(file) => analyzeDriveFile(folderId, file)}
+        onNotice={setNotice}
+        resolveUrl={resolveUrl}
+      />
+    );
+  };
+
   const renderChat = (
     <main className="chat">
       <div className="chat-main">
@@ -1777,7 +2071,21 @@ export default function App() {
             </button>
           ))}
         </div>
-        <div className="thread">
+        <div
+          className="thread"
+          ref={threadRef}
+          onScroll={() => {
+            const el = threadRef.current;
+            const all = messages.filter((m) => m.role !== 'system').length;
+            if (el && el.scrollTop <= 24 && all - visibleCount > 0 && !olderBusyRef.current) {
+              olderBusyRef.current = true;
+              setVisibleCount((v) => v + 5);
+              window.setTimeout(() => {
+                olderBusyRef.current = false;
+              }, 180);
+            }
+          }}
+        >
           {messages.length === 0 && (
             <div className="empty">
               <h2>一个入口，覆盖售前全流程</h2>
@@ -1795,9 +2103,9 @@ export default function App() {
             return (
               <>
                 {hidden > 0 && (
-                  <button className="load-more" onClick={() => setVisibleCount((v) => v + 40)}>
-                    加载更早的 {hidden} 条消息
-                  </button>
+                  <div className="history-hint">
+                    继续向上滑动，每次加载更早 {Math.min(5, hidden)} 条
+                  </div>
                 )}
                 {shown.map((m) => (
                   <ChatMessage
@@ -1815,6 +2123,7 @@ export default function App() {
                     resolveUrl={resolveUrl}
                     live={live}
                     onError={setNotice}
+                    onOpenSource={openMessageSource}
                   />
                 ))}
               </>
@@ -2170,6 +2479,7 @@ export default function App() {
 
       <div className="body">
         <aside className="sidebar">
+          <div className="sidebar-scroll">
           <button className="new-chat" onClick={() => createSession()}>＋ 新对话</button>
 
           <div className="nav-section">
@@ -2214,7 +2524,7 @@ export default function App() {
             </button>
           </div>
 
-          <div className="nav-section grow">
+          <div className="nav-section">
             <div className="nav-label">
               项目
               <button className="nav-add" onClick={createFolder} title="新建文件夹">＋</button>
@@ -2247,14 +2557,14 @@ export default function App() {
                       </button>
                       <div className="folder-actions">
                         <button onClick={() => createSession(f.id)} title="在此新建对话">＋</button>
+                        <button onClick={() => setNav(`folder:${f.id}`)} title="客户档案 / 资料库">📋</button>
                         <button onClick={() => startFolderEdit(f)} title="重命名文件夹">✎</button>
                         <button onClick={() => deleteFolder(f)} title="删除文件夹">🗑</button>
                       </div>
                     </>
                   )}
                 </div>
-                {expanded[f.id] !== false &&
-                  folderSessions(f.id).map((s) => renderSessionRow(s))}
+                {expanded[f.id] !== false && renderSessionPreview(f.id, folderSessions(f.id))}
               </div>
             ))}
             <div className={`folder ${confirmDelUnfiled ? 'confirm-open' : ''}`}>
@@ -2297,11 +2607,11 @@ export default function App() {
                   </>
                 )}
               </div>
-              {expanded.unfiled !== false &&
-                unfiledSessions.map((s) => renderSessionRow(s))}
+              {expanded.unfiled !== false && renderSessionPreview('unfiled', unfiledSessions)}
             </div>
           </div>
 
+          </div>
           <button className="config-btn" onClick={() => setConfigOpen(true)}>
             <span>⚙ 配置</span>
           </button>
@@ -2320,6 +2630,7 @@ export default function App() {
             />
           ) : (
             <>
+              {nav.startsWith('folder:') && renderCustomerDossier(nav.slice(7))}
               {nav === 'chat' && renderChat}
               {nav === 'scheduled' && renderScheduled}
               {nav === 'reminders' && renderReminders}

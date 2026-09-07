@@ -28,7 +28,11 @@ body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.6 -app
 
 /* ---- 主体：侧栏 + 内容 ---- */
 .body { flex: 1; display: flex; min-height: 0; }
-.sidebar { width: 252px; flex-shrink: 0; border-right: 1px solid var(--line); display: flex; flex-direction: column; padding: 10px 8px; gap: 4px; overflow-y: auto; }
+.sidebar { width: 252px; flex-shrink: 0; border-right: 1px solid var(--line); display: flex; flex-direction: column; padding: 10px 8px; gap: 8px; overflow: hidden; }
+.sidebar-scroll { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 4px; padding-right: 2px; scrollbar-gutter: stable; }
+.sidebar-scroll::-webkit-scrollbar { width: 6px; }
+.sidebar-scroll::-webkit-scrollbar-thumb { background: var(--line); border-radius: 3px; }
+.sidebar-scroll::-webkit-scrollbar-thumb:hover { background: var(--muted); }
 .new-chat { background: var(--accent); color: #07121f; border: 0; border-radius: 8px; padding: 9px 12px; font-weight: 600; cursor: pointer; margin-bottom: 8px; }
 .new-chat:hover { filter: brightness(1.08); }
 .nav-section { display: flex; flex-direction: column; gap: 2px; margin-bottom: 10px; }
@@ -62,6 +66,8 @@ body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.6 -app
 .folder-inline { margin: 2px 6px; }
 .config-btn { margin-top: auto; background: none; border: 1px solid var(--line); color: var(--muted); border-radius: 8px; padding: 8px 12px; cursor: pointer; text-align: left; font-size: 13px; }
 .config-btn:hover { color: var(--text); border-color: var(--accent); }
+.more-sessions { display: block; margin: 2px 6px 4px 40px; background: none; border: 0; color: var(--muted); font-size: 12px; cursor: pointer; padding: 2px 4px; text-align: left; border-radius: 5px; }
+.more-sessions:hover { color: var(--accent); background: var(--panel); }
 
 /* ---- 主内容 ---- */
 .main { flex: 1; min-width: 0; display: flex; flex-direction: column; overflow-y: auto; }
@@ -74,6 +80,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.6 -app
 .thread { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 14px; padding: 10px 4px; }
 .load-more { align-self: center; background: var(--panel2); border: 1px solid var(--line); color: var(--muted); border-radius: 20px; padding: 6px 16px; cursor: pointer; font-size: 12px; }
 .load-more:hover { color: var(--accent); border-color: var(--accent); }
+.history-hint { align-self: center; color: var(--muted); font-size: 12px; padding: 4px 12px; background: var(--panel2); border: 1px dashed var(--line); border-radius: 20px; }
 .empty { text-align: center; margin: auto; color: var(--muted); max-width: 480px; }
 .empty h2 { color: var(--text); }
 .hint { font-size: 12px; color: var(--muted); }
@@ -122,6 +129,58 @@ body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.6 -app
 .artifact-err { font-size: 11px; color: var(--warn); }
 .artifact-actions { display: flex; }
 .artifact-download { background: var(--accent); color: #07121f; border-radius: 6px; padding: 5px 12px; font-size: 12px; font-weight: 600; text-decoration: none; }
+
+/* ---- 客户档案 / Drive 工作区（P0） ---- */
+.dossier-page .folder-name-inline { color: var(--muted); font-weight: 500; font-size: 16px; margin-left: 8px; }
+.customer-meta { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 10px; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 14px; }
+.customer-meta label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--muted); }
+.customer-meta input, .customer-meta select, .customer-meta textarea { background: var(--panel2); color: var(--text); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; font: inherit; resize: vertical; }
+.customer-meta .customer-notes { grid-column: 1 / -1; }
+.dossier-body { display: grid; grid-template-columns: minmax(240px, 320px) 1fr; gap: 12px; margin-top: 12px; align-items: start; }
+.dossier-col { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 12px; display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.dossier-session-name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dossier-files .list-row { width: 100%; }
+.drive-search { display: flex; gap: 6px; flex-wrap: wrap; }
+.drive-search input { flex: 1; min-width: 180px; background: var(--panel2); color: var(--text); border: 1px solid var(--line); border-radius: 8px; padding: 7px 10px; }
+.drive-search button { background: var(--panel2); color: var(--text); border: 1px solid var(--line); border-radius: 8px; padding: 6px 12px; cursor: pointer; font-size: 12px; }
+.text-link { background: none; border: 0; color: var(--accent); cursor: pointer; align-self: flex-start; font-size: 12px; padding: 2px 0; }
+.dossier-error { color: var(--warn); }
+.drive-file-list { display: flex; flex-direction: column; gap: 6px; max-height: 520px; overflow: auto; }
+.drive-file-row { display: flex; align-items: center; gap: 8px; border: 1px solid var(--line); background: var(--panel2); border-radius: 8px; padding: 8px 10px; }
+.drive-file-ic { font-size: 18px; }
+.drive-file-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.drive-file-main strong { font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.drive-preview { border: 1px dashed var(--line); border-radius: 10px; padding: 10px; background: var(--panel2); max-height: 420px; overflow: auto; }
+.drive-preview-img { max-width: 100%; border-radius: 8px; }
+.drive-preview-text { white-space: pre-wrap; font: 12px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace; margin: 4px 0 0; }
+.drive-preview-md { line-height: 1.7; font-size: 14px; }
+.drive-preview-md h1, .drive-preview-md h2, .drive-preview-md h3 { margin: 8px 0 4px; }
+.drive-preview-md p { margin: 6px 0; }
+.artifact-archive { margin-top: 12px; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 12px; }
+.artifact-archive .card-title { align-items: center; gap: 8px; }
+.artifact-grid { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 8px; }
+.artifact-archive .artifact-card { background: var(--panel2); min-width: 200px; flex: 1 1 220px; }
+.artifact-archive .artifact-download { border: 0; cursor: pointer; display: inline-block; text-decoration: none; }
+
+/* ---- 记忆 / 团队知识源（P1.5） ---- */
+.mem-kb-panel { border: 1px solid var(--line); border-radius: 10px; background: var(--panel2); padding: 8px 10px; margin-top: 8px; }
+.mem-kb-panel > summary { cursor: pointer; color: var(--accent); font-weight: 600; font-size: 13px; }
+.mem-kb-grid { display: flex; flex-direction: column; gap: 8px; margin-top: 8px; }
+.mem-kb-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.mem-kb-main { display: flex; flex-direction: column; min-width: 0; }
+.mem-kb-row button { background: var(--panel2); color: var(--text); border: 1px solid var(--line); border-radius: 6px; padding: 4px 10px; cursor: pointer; font-size: 12px; }
+.mem-kb-row button:hover { border-color: var(--accent); }
+.mem-kb-row button:disabled { opacity: 0.5; cursor: not-allowed; }
+.mem-kb-key { display: flex; gap: 6px; }
+.mem-kb-key input { flex: 1; background: var(--panel); color: var(--text); border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; font-size: 12px; min-width: 180px; }
+.mem-kb-key button { background: var(--accent); color: #07121f; border: 0; border-radius: 6px; padding: 6px 12px; cursor: pointer; }
+.msg-sources { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 8px; }
+.msg-sources-label { font-size: 11px; color: var(--muted); }
+.source-chip { background: var(--panel2); color: var(--accent); border: 1px solid var(--line); border-radius: 20px; font-size: 12px; padding: 3px 10px; cursor: pointer; max-width: 320px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.source-chip:hover { border-color: var(--accent); }
+@media (max-width: 900px) {
+  .dossier-body { grid-template-columns: 1fr; }
+}
 .ops { display: flex; flex-direction: column; gap: 2px; margin-bottom: 8px; font-size: 12px; color: var(--muted); border-bottom: 1px dashed var(--line); padding-bottom: 8px; }
 .op .op-mark { color: var(--green); margin-right: 6px; }
 .composer { padding: 10px 0 16px; }

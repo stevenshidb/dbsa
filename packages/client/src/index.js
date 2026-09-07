@@ -124,6 +124,38 @@ export class Agent9Client {
     return this.request('GET', '/api/console/projects');
   }
 
+  // ---- Drive / 项目文件（console drive，User API Key 可读） ----
+  listDriveProjects() {
+    return this.request('GET', '/api/console/drive');
+  }
+
+  listDriveDirectory(projectId, { path = '', sort = 'modified', order = 'desc', type = 'all' } = {}) {
+    return this.request('GET', `/api/console/drive/${encodeURIComponent(projectId)}`, {
+      query: { path, sort, order, type },
+    });
+  }
+
+  searchDriveProject(
+    projectId,
+    { q, mode = 'name', path = '', limit = 50, offset = 0, type = 'all' } = {},
+  ) {
+    return this.request('GET', `/api/console/drive/${encodeURIComponent(projectId)}/search`, {
+      query: { q, mode, path, limit, offset, type },
+    });
+  }
+
+  readDriveFile(projectId, relPath) {
+    return this.request('GET', `/api/console/drive/${encodeURIComponent(projectId)}/file`, {
+      query: { path: relPath },
+    });
+  }
+
+  mintDriveDownloadUrl(projectId, relPath) {
+    return this.request('POST', `/api/console/drive/${encodeURIComponent(projectId)}/file/download-url`, {
+      body: { relPath },
+    });
+  }
+
   // ---- 健康检查（诊断用） ----
   livez() {
     return this.request('GET', '/livez');
@@ -165,6 +197,13 @@ export class Agent9Client {
     return this.request('PATCH', `/api/agents/${agentId}/config`, {
       body: patch,
       headers: ifMatch ? { 'If-Match': ifMatch } : {},
+    });
+  }
+
+  /** 校验并替换 Agent 的 Mem9 记忆 Key（仅 Agent 创建者，User API Key 可用）。 */
+  putMem9Key(agentId, mem9Key) {
+    return this.request('PUT', `/api/agents/${agentId}/memory/mem9/key`, {
+      body: { mem9Key },
     });
   }
 
