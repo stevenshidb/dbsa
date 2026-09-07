@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react';
 import { McpSection } from './mcp';
-import DatabendConnector from './databend';
 import LakeConnector from './lake';
 
 const LARK_BASES = [
@@ -237,14 +236,6 @@ export default function Connectors({ client, live, agents, selectedAgentId, onNo
         )}
       </div>
 
-      <DatabendConnector
-        client={client}
-        live={live}
-        agents={agents}
-        selectedAgentId={selectedAgentId}
-        onNotice={onNotice}
-        onChanged={() => setMcpRefresh((v) => v + 1)}
-      />
       <LakeConnector
         client={client}
         live={live}

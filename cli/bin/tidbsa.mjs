@@ -19,10 +19,8 @@ if (!cmd || cmd === 'help' || cmd === '--help') {
   tidbsa chat --once "<问题>" 使用上次会话（不重设角色）
   tidbsa demo [scene]         脚本化流程（requirement|proposal|competitive|poc）
   tidbsa list <agents|sessions|artifacts|schedulers>
-  tidbsa mcp databend connect <https://…/mcp> [--agent <agentId>] [--bearer <token>]
-                               注册/激活/挂载 Databend MCP 数据源（路径 A）
   tidbsa mcp lake connect <https://…/mcp> [--agent <agentId>] [--bearer <token>]
-                               注册/激活/挂载 TiDB Cloud Lake MCP 数据源（路径 A）
+                               注册/激活/挂载 TiDB Cloud Lake MCP 连接（路径 A）
 
 需要环境变量：AGENT9_BASE_URL、AGENT9_API_KEY（可放 .env）
 `);
@@ -88,29 +86,6 @@ async function main() {
       const i = args.indexOf(name);
       return i >= 0 && args[i + 1] ? args[i + 1] : fallback;
     };
-    if (group === 'databend' && action === 'connect') {
-      const { connectDatabendMcp } = await import('../../scripts/lib/mcp-databend.mjs');
-      const endpointUrl = args[2];
-      const agentId = flag('--agent') ?? (await pickAgent());
-      const bearer = flag('--bearer', '');
-      const displayName = flag('--name', 'Databend 数据源');
-      if (!endpointUrl || !/^https:\/\//i.test(endpointUrl)) {
-        console.error('用法：tidbsa mcp databend connect <https://…/mcp> [--agent <agentId>] [--bearer <token>]');
-        process.exit(1);
-      }
-      await ensureProject();
-      const result = await connectDatabendMcp(client, {
-        endpointUrl,
-        bearer,
-        agentId,
-        displayName,
-      });
-      console.log('\n完成：');
-      console.log(`  MCP Server: ${result.serverId}`);
-      console.log(`  Agent     : ${result.agentId}`);
-      console.log('现在可以在该 Agent 的对话中直接使用 execute_sql/show_databases 等工具。');
-      return;
-    }
     if (group === 'lake' && action === 'connect') {
       const { connectLakeMcp } = await import('../../scripts/lib/mcp-lake.mjs');
       const endpointUrl = args[2];
@@ -134,7 +109,7 @@ async function main() {
       console.log('现在可以在该 Agent 的对话中直接使用 execute_sql/show_databases 等工具。');
       return;
     }
-    console.error('未知 mcp 子命令。用法：tidbsa mcp databend|lake connect <endpoint> [--agent id] [--bearer token]');
+    console.error('未知 mcp 子命令。用法：tidbsa mcp lake connect <endpoint> [--agent id] [--bearer token]');
     process.exit(1);
   }
 

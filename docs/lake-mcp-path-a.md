@@ -3,7 +3,7 @@
 ## 结论
 
 Agent9（agent-stack）是 **MCP 客户端**，只消费远程 `streamable_http` 端点，不认识
-`lake://` DSN。路径 A 的做法与 Databend 相同：在 tidbsa 里运行一个
+`lake://` DSN。路径 A 的做法：在 tidbsa 里运行一个
 **TiDB Cloud Lake → MCP HTTP 桥**，DSN 只留在桥的进程环境里，桥再以 Agent9
 可访问的 HTTPS 端点注册为 MCP Server，激活后工具会出现在指定 Agent 的对话里。
 
@@ -55,7 +55,7 @@ pnpm lake:bridge
 | `LAKE_MCP_SAFE_MODE` | `true` | true = 只读 + sandbox 前缀写；false = 放开写 |
 | `LAKE_BRIDGE_BEARER` | 空 | 对外暴露时建议设置；Agent9 侧配 static_bearer |
 | `LAKE_MCP_BIND_HOST` | `127.0.0.1` | 内网联调保持回环；容器/公网可 `0.0.0.0` |
-| `LAKE_MCP_BIND_PORT` | `8002` | HTTP 端口（与 Databend 桥 8001 错开） |
+| `LAKE_MCP_BIND_PORT` | `8002` | HTTP 端口 |
 | `LAKE_MCP_MAX_ROWS` | `200` | 返回给模型的最大行数，超出截断提示 |
 | `LAKE_QUERY_TIMEOUT` | `300` | SQL 超时秒数 |
 
@@ -96,7 +96,7 @@ pnpm cli mcp lake connect https://lake-mcp.example.com/mcp \
 
 也可以在 Web 控制台「专家·连接器 → 🔗 连接器」：
 
-1. 在 **TiDB Cloud Lake 数据源（MCP 路径 A）** 卡片填端点与 Bearer；
+1. 在 **TiDB Cloud Lake（MCP 数据源）** 卡片粘贴 Lake MCP 地址，可选填访问密钥；
 2. 选择要挂载的 Agent；
 3. 点「一键注册 · 激活 · 挂载」；
 4. 下方「MCP 服务器」列表刷新后出现该注册，状态为已激活。
@@ -133,4 +133,4 @@ pnpm cli mcp lake connect https://lake-mcp.example.com/mcp \
   Lake 联调若返回鉴权错误，请确认 DSN 的 host/数据库/warehouse 与 TiDB Cloud
   Lake 控制台连接信息一致，并检查网络到 `:443` 是否可达；
 - 若你的 Lake 端点不支持 `/v1/session/login`（返回 404/405），桥会自动降级为
-  Databend 兼容的 Basic Auth 直连，不需要额外配置。
+  Basic Auth 直连，不需要额外配置。

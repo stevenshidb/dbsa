@@ -36,8 +36,6 @@ importers:
         specifier: ^6.0.5
         version: 6.4.3
 
-  apps/databend-bridge: {}
-
   apps/lake-bridge: {}
 
   packages/client: {}

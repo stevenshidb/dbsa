@@ -10,35 +10,29 @@ export default function LakeConnector({
   onNotice,
   onChanged,
 }) {
-  const [form, setForm] = useState({
-    displayName: 'TiDB Cloud Lake 数据源',
-    endpointUrl: '',
-    bearer: '',
-    agentId: '',
-  });
+  const [form, setForm] = useState({ endpointUrl: '', bearer: '', agentId: '' });
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
     setForm((p) => ({ ...p, agentId: selectedAgentId || agents[0]?.agentId || '' }));
   }, [selectedAgentId, agents]);
 
-  const agentName = (id) =>
-    agents.find((a) => a.agentId === id)?.name || id || '未选择';
-
   const connect = async () => {
     const endpointUrl = form.endpointUrl.trim();
     const agentId = form.agentId;
     if (!live) {
-      onNotice?.('Mock 模式：一键接入将在 Live 模式下执行');
+      onNotice?.('Mock 模式：一键连接将在 Live 模式下执行');
       return;
     }
     if (!/^https:\/\//i.test(endpointUrl)) {
-      return onNotice?.('Agent9 的 MCP 端点必须是 https:// 公网地址。内网桥可用后请通过 TLS 反代暴露。');
+      return onNotice?.('请填写 Agent9 可访问的 Lake MCP 端点，格式必须为 https://…/mcp');
     }
-    if (!agentId) return onNotice?.('请先在左上角选择要挂载的 Agent');
+    if (!agentId) return onNotice?.('请先选择要挂载的 Agent');
+
     setBusy(true);
     const steps = [];
     try {
+      // 复用同一 Agent 下同端点的注册，避免重复。
       const listRes = await client.listMcpServers();
       const list = listRes?.servers ?? listRes ?? [];
       let server = list.find(
@@ -51,7 +45,7 @@ export default function LakeConnector({
         steps.push(`复用已有注册 ${server.serverId}`);
       } else {
         const created = await client.createMcpServer({
-          displayName: form.displayName.trim() || 'TiDB Cloud Lake 数据源',
+          displayName: 'TiDB Cloud Lake',
           endpointUrl,
           scope: { kind: 'agent', agentId },
         });
@@ -71,15 +65,16 @@ export default function LakeConnector({
                 expectedCurrentVersion: existing.currentVersion,
               }
             : {};
-        const credential = form.bearer.trim()
+        const bearer = form.bearer.trim();
+        const credential = bearer
           ? await client.putMcpCredential(serverId, {
               authKind: 'static_bearer',
-              secret: form.bearer.trim(),
+              secret: bearer,
               ...expected,
             })
           : await client.putMcpCredential(serverId, { authKind: 'none', ...expected });
         const cred = credential?.credential ?? credential ?? {};
-        steps.push(`凭据 ${cred.authKind ?? 'none'} v${cred.currentVersion ?? 0}`);
+        steps.push(cred.authKind === 'static_bearer' ? '访问密钥已绑定' : '无鉴权');
 
         const activated = await client.activateMcpServer(serverId, server.serverVersion);
         const active = activated?.server ?? activated;
@@ -87,7 +82,7 @@ export default function LakeConnector({
           `已激活（${active.status} · 协议 ${active.observation?.protocolVersion ?? 'unknown'}）`,
         );
       } else {
-        steps.push('注册已激活，跳过凭据/激活');
+        steps.push('注册已激活，跳过密钥/激活');
       }
 
       const agentRes = await client.getAgent(agentId);
@@ -104,10 +99,10 @@ export default function LakeConnector({
       );
       steps.push(`已挂载到「${agent?.name ?? agentId}」`);
 
-      onNotice?.(`TiDB Cloud Lake 接入完成：\n${steps.join('\n')}`);
+      onNotice?.(`TiDB Cloud Lake 连接成功：\n${steps.join('\n')}`);
       onChanged?.();
     } catch (err) {
-      onNotice?.(`TiDB Cloud Lake 接入失败：${friendly(err)}`);
+      onNotice?.(`连接 TiDB Cloud Lake 失败：${friendly(err)}`);
     } finally {
       setBusy(false);
     }
@@ -116,32 +111,27 @@ export default function LakeConnector({
   return (
     <div className="connector-card">
       <div className="card-title">
-        <strong>TiDB Cloud Lake 数据源（MCP 路径 A）</strong>
+        <strong>TiDB Cloud Lake（MCP 数据源）</strong>
         <span className="tag tag-live">{live ? 'Live' : 'Mock'}</span>
       </div>
       <p className="hint">
-        前置：已用 <code>pnpm lake:bridge</code> 启动本机桥，并经 TLS 反向代理暴露为
-        https://…/mcp。填写后一键「注册 → 绑定凭据 → 激活 → 挂载到当前专家 Agent」。
+        把 Agent9 能访问到的 Lake MCP 地址粘贴到下面（本机运行
+        <code> pnpm lake:bridge </code>后经 TLS 暴露的 https://…/mcp，或企业版托管端点）。
+        可选填访问密钥，点一下即可注册、激活并挂载到所选 Agent。
       </p>
       <div className="conn-form">
-        <label>显示名称
-          <input
-            value={form.displayName}
-            onChange={(e) => setForm({ ...form, displayName: e.target.value })}
-          />
-        </label>
-        <label>桥端点（https://…/mcp）
+        <label>Lake MCP 地址（https://…/mcp）
           <input
             value={form.endpointUrl}
-            placeholder="https://mcp.example.com/mcp"
+            placeholder="https://lake-mcp.example.com/mcp"
             onChange={(e) => setForm({ ...form, endpointUrl: e.target.value })}
           />
         </label>
-        <label>桥 Bearer（可为空 = none）
+        <label>访问密钥 / Bearer（可选）
           <input
             type="password"
             value={form.bearer}
-            placeholder="可选"
+            placeholder="无鉴权可留空"
             onChange={(e) => setForm({ ...form, bearer: e.target.value })}
           />
         </label>
@@ -157,11 +147,11 @@ export default function LakeConnector({
         </label>
         <div className="actions">
           <button className="primary" disabled={busy} onClick={connect}>
-            {busy ? '接入中…' : '一键注册 · 激活 · 挂载'}
+            {busy ? '连接中…' : '连接并挂载到 Agent'}
           </button>
         </div>
       </div>
-      {!form.agentId && <p className="hint">当前将挂载到：{agentName(form.agentId)}（请选择）</p>}
+      {!form.agentId && <p className="hint">请在上方选择要挂载的 Agent。</p>}
     </div>
   );
 }

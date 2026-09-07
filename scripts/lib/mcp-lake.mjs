@@ -1,5 +1,5 @@
 // 路径 A 的 Agent9 侧接入：注册 TiDB Cloud Lake MCP Server（agent scope）→ 配置凭据 → 激活 → 挂载到 Agent。
-// 与 mcp-databend.mjs 使用同一套 Agent9 MCP API；字段与 agent9 origin/main src/mcp 契约对齐。
+// 只使用 packages/client 已暴露的 MCP 方法，字段与 agent9 origin/main src/mcp 契约对齐。
 
 const MCP_SERVER_PATTERN = /^mcp_[a-f0-9-]{36}$/;
 

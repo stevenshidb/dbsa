@@ -18,7 +18,6 @@ cp .env.example .env
 pnpm seed             # 一键创建「TiDB 售前助手」Agent + 会话 + 定时任务
 pnpm demo             # 跑一遍脚本化售前流程（需求分析 → 方案生成 → 制品列表）
 pnpm cli chat "客户想从 MySQL 迁移到 TiDB，帮我梳理 POC 方案"   # 命令行问答
-pnpm databend:bridge  # 启动 Databend MCP 桥（路径 A，先填 .env 的 DATABEND_DSN）
 pnpm lake:bridge      # 启动 TiDB Cloud Lake MCP 桥（路径 A，先填 .env 的 LAKE_DSN）
 ```
 
@@ -31,7 +30,6 @@ tidbsa/
 │   └── agent9-api-map.md    # Agent9 能力 → 售前场景 → API 映射表
 ├── packages/client/         # Agent9 API 客户端（零依赖 ESM，Web/CLI 共用）
 ├── apps/console/            # Web Demo（Vite + React，含 Mock 模式）
-├── apps/databend-bridge/    # Databend → MCP(streamable HTTP) 桥（零依赖 Node）
 ├── apps/lake-bridge/        # TiDB Cloud Lake → MCP(streamable HTTP) 桥（零依赖 Node）
 ├── cli/                     # 命令行 Demo
 ├── config/
