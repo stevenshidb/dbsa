@@ -558,6 +558,10 @@ export class Agent9Client {
     });
   }
 
+  getMcpServer(serverId) {
+    return this.request('GET', `/api/mcp/servers/${serverId}`);
+  }
+
   updateMcpServer(serverId, patch) {
     return this.request('PATCH', `/api/mcp/servers/${serverId}`, { body: patch });
   }

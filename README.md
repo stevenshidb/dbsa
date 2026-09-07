@@ -91,3 +91,13 @@ pnpm cli doctor
 ### 3) 端口冲突
 
 Console 固定 5272；Agent9 固定 5172。两者不同端口，不会冲突。
+
+### 4) 激活 Lake MCP 报 Internal Server Error 或 credential stale
+
+- 500 的常见原因：MCP 地址填成了 `https://127.0.0.1:8002/mcp`、`localhost` 或内网
+  IP。云端 Agent9 只能访问公网地址，这类地址会连到 Agent9 自己容器内的回环并返回
+  500。请把 `pnpm lake:bridge` 暴露成公网 HTTPS（域名 + TLS，或临时隧道）后填写
+  `https://你的域名/mcp`；
+- 早期误填的 127.0.0.1 注册会在再次连接公网地址时被自动迁移，无需手动清理；
+- `credential is missing or stale` 表示注册状态版本已变化：新版已改为绑定凭据后重读
+  最新版本再激活；若仍出现，可先在「连接器 → MCP 服务器」里停用再重连。

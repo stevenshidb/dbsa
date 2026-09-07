@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { mcpEndpointIssue } from './lake';
 
 const friendly = (err) => err?.message ?? String(err);
 
@@ -67,9 +68,9 @@ export function McpSection({ client, live, agents, onNotice, refreshToken = 0 })
   };
 
   const register = () => {
-    if (!form.displayName.trim() || !/^https:\/\//.test(form.endpointUrl.trim())) {
-      return setNotice('请填写名称与 https:// 端点');
-    }
+    const endpointIssue = mcpEndpointIssue(form.endpointUrl.trim());
+    if (!form.displayName.trim()) return setNotice('请填写名称');
+    if (endpointIssue) return setNotice(endpointIssue);
     const scope =
       form.scopeKind === 'agent'
         ? { kind: 'agent', agentId: form.agentId }
@@ -182,6 +183,11 @@ export function McpSection({ client, live, agents, onNotice, refreshToken = 0 })
                 <strong>{s.displayName ?? s.serverId}</strong>
                 <span className={`tag ${s.status === 'active' ? 'tag-live' : 'tag-mock'}`}>{s.status === 'active' ? '已激活' : '未激活'}</span>
                 <span className="tag tag-mock">{scopeName(s)}</span>
+                {s.status !== 'active' && mcpEndpointIssue(s.endpointUrl) && (
+                  <span className="tag tag-mock" title={mcpEndpointIssue(s.endpointUrl)}>
+                    本地/内网，云端不可连
+                  </span>
+                )}
               </div>
               <div className="agent-id">{s.endpointUrl} · {s.transport} · v{s.serverVersion}</div>
               {s.observation && (
@@ -192,7 +198,12 @@ export function McpSection({ client, live, agents, onNotice, refreshToken = 0 })
               )}
             </div>
             <div className="ct-actions">
-              <button disabled={busy} onClick={() => toggleActive(s)}>{s.status === 'active' ? '停用' : '激活'}</button>
+              <button
+                disabled={busy || (s.status !== 'active' && !!mcpEndpointIssue(s.endpointUrl))}
+                onClick={() => toggleActive(s)}
+              >
+                {s.status === 'active' ? '停用' : '激活'}
+              </button>
               <button
                 onClick={async () => {
                   setCredOpen(credOpen === s.serverId ? null : s.serverId);

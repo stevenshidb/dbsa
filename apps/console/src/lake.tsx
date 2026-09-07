@@ -2,6 +2,53 @@ import { useEffect, useState } from 'react';
 
 const friendly = (err) => err?.message ?? String(err);
 
+const PRIVATE_HOST = new RegExp(
+  [
+    '(^|\\.)localhost$',
+    '(^|\\.)local$',
+    '(^|\\.)lan$',
+    '(^|\\.)internal$',
+    '^127\\.',
+    '^10\\.',
+    '^192\\.168\\.',
+    '^172\\.(1[6-9]|2[0-9]|3[01])\\.',
+    '^169\\.254\\.',
+    '^100\\.(6[4-9]|[7-9][0-9])\\.',
+    '^0\\.',
+    '^::1$',
+    '^fe80:',
+    '^fc',
+    '^fd',
+  ].join('|'),
+  'i',
+);
+
+/** 返回 null 表示可安全注册；否则返回给用户看的修复提示。 */
+export function mcpEndpointIssue(endpointUrl) {
+  let url;
+  try {
+    url = new URL(endpointUrl);
+  } catch {
+    return '不是合法的 URL';
+  }
+  if (url.protocol !== 'https:') return 'Agent9 只接受 https:// 的 MCP 地址';
+  if (url.username || url.password) return 'MCP 地址不能内嵌用户名/密码';
+  const host = url.hostname.replace(/^\[|\]$/g, '');
+  if (!host || PRIVATE_HOST.test(host)) {
+    return `“${endpointUrl}” 是本地/内网地址，云端 Agent9 无法访问。请先运行 pnpm lake:bridge，再把它通过公网域名 + TLS 暴露成 https://…/mcp 后填写。`;
+  }
+  return null;
+}
+
+const maskEndpoint = (endpointUrl) => {
+  try {
+    const u = new URL(endpointUrl);
+    return `${u.protocol}//${u.host}${u.pathname}`;
+  } catch {
+    return endpointUrl;
+  }
+};
+
 export default function LakeConnector({
   client,
   live,
@@ -24,15 +71,16 @@ export default function LakeConnector({
       onNotice?.('Mock 模式：一键连接将在 Live 模式下执行');
       return;
     }
-    if (!/^https:\/\//i.test(endpointUrl)) {
-      return onNotice?.('请填写 Agent9 可访问的 Lake MCP 端点，格式必须为 https://…/mcp');
+    const issue = mcpEndpointIssue(endpointUrl);
+    if (issue) {
+      onNotice?.(issue);
+      return;
     }
     if (!agentId) return onNotice?.('请先选择要挂载的 Agent');
 
     setBusy(true);
     const steps = [];
     try {
-      // 复用同一 Agent 下同端点的注册，避免重复。
       const listRes = await client.listMcpServers();
       const list = listRes?.servers ?? listRes ?? [];
       let server = list.find(
@@ -44,6 +92,29 @@ export default function LakeConnector({
       if (server) {
         steps.push(`复用已有注册 ${server.serverId}`);
       } else {
+        // 用户早期把 127.0.0.1/localhost 填进注册，云端永远连不上；这里自动把
+        // 同一个 Agent 下的这类旧注册迁移到新的公网地址，而不是再新建一条。
+        const stale = list.find(
+          (s) =>
+            s.status !== 'active' &&
+            s.scope?.kind === 'agent' &&
+            s.scope?.id === agentId &&
+            (mcpEndpointIssue(s.endpointUrl) !== null ||
+              /lake|tidb/i.test(String(s.displayName ?? ''))),
+        );
+        if (stale) {
+          const patched = await client.updateMcpServer(stale.serverId, {
+            expectedServerVersion: stale.serverVersion,
+            displayName: 'TiDB Cloud Lake',
+            endpointUrl,
+          });
+          server = patched?.server ?? patched;
+          steps.push(
+            `已把旧注册 ${stale.serverId}（${maskEndpoint(stale.endpointUrl)}）迁移到新地址`,
+          );
+        }
+      }
+      if (!server) {
         const created = await client.createMcpServer({
           displayName: 'TiDB Cloud Lake',
           endpointUrl,
@@ -55,7 +126,12 @@ export default function LakeConnector({
       const serverId = server?.serverId;
       if (!serverId) throw new Error('Agent9 未返回 serverId');
 
-      if (server.status !== 'active') {
+      // 始终以最新注册状态为准，避免版本号陈旧。
+      const freshRes = await client.getMcpServer(serverId);
+      const fresh = freshRes?.server ?? freshRes;
+      server = fresh ?? server;
+
+      if (server?.status !== 'active') {
         const viewRes = await client.getMcpCredential(serverId);
         const existing = viewRes?.credential ?? viewRes ?? null;
         const expected =
@@ -76,7 +152,13 @@ export default function LakeConnector({
         const cred = credential?.credential ?? credential ?? {};
         steps.push(cred.authKind === 'static_bearer' ? '访问密钥已绑定' : '无鉴权');
 
-        const activated = await client.activateMcpServer(serverId, server.serverVersion);
+        // 绑定凭据会推进注册状态，重读后再激活。
+        const afterCredRes = await client.getMcpServer(serverId);
+        const afterCred = afterCredRes?.server ?? afterCredRes ?? {};
+        if (!Number.isInteger(afterCred.serverVersion)) {
+          throw new Error('读取最新注册版本失败，请刷新后重试');
+        }
+        const activated = await client.activateMcpServer(serverId, afterCred.serverVersion);
         const active = activated?.server ?? activated;
         steps.push(
           `已激活（${active.status} · 协议 ${active.observation?.protocolVersion ?? 'unknown'}）`,
@@ -102,7 +184,13 @@ export default function LakeConnector({
       onNotice?.(`TiDB Cloud Lake 连接成功：\n${steps.join('\n')}`);
       onChanged?.();
     } catch (err) {
-      onNotice?.(`连接 TiDB Cloud Lake 失败：${friendly(err)}`);
+      const message = friendly(err);
+      const hint = /Internal Server Error|HTTP 500|http_500/i.test(message)
+        ? '\n提示：500 通常是 Agent9 云无法连通你填写的端点。请确认：1) 地址是公网可达的 https://…/mcp，不是 127.0.0.1/localhost/内网 IP；2) pnpm lake:bridge 正在运行且经 TLS 暴露；3) 端点若设了 Bearer，访问密钥要填写一致。'
+        : /credential.*(missing|stale)|missing or stale/i.test(message)
+          ? '\n提示：凭据状态仍未匹配。可先在下方 MCP 服务器列表中停用/删除后重试，或核对端点要求无鉴权还是有 Bearer。'
+          : '';
+      onNotice?.(`连接 TiDB Cloud Lake 失败：${message}${hint}`);
     } finally {
       setBusy(false);
     }
@@ -115,9 +203,9 @@ export default function LakeConnector({
         <span className="tag tag-live">{live ? 'Live' : 'Mock'}</span>
       </div>
       <p className="hint">
-        把 Agent9 能访问到的 Lake MCP 地址粘贴到下面（本机运行
-        <code> pnpm lake:bridge </code>后经 TLS 暴露的 https://…/mcp，或企业版托管端点）。
-        可选填访问密钥，点一下即可注册、激活并挂载到所选 Agent。
+        填入 Agent9 能访问到的 Lake MCP 公网地址（<code>pnpm lake:bridge</code>
+        经域名 + TLS 暴露后的 https://…/mcp，或企业托管端点）。不能填
+        127.0.0.1/localhost/内网 IP。可选填访问密钥，点一下即可连接并挂载到 Agent。
       </p>
       <div className="conn-form">
         <label>Lake MCP 地址（https://…/mcp）

@@ -126,8 +126,10 @@ pnpm cli mcp lake connect https://lake-mcp.example.com/mcp \
 ## 5. 已知限制与故障排查
 
 - Agent9 当前 MCP 结果只消费 **text/link**，桥统一把 SQL 结果格式化为 text JSON；
-- 若 Agent9 激活报连不上：桥要在 Agent9 网络可达处。Agent9 注册接口强制要求
-  `https://`，本地全栈也要在桥前面套 TLS 反代，不能用裸 `http://localhost:8002`；
+- 若 Agent9 激活报连不上或 Internal Server Error：Agent9 注册与激活的**探测来自
+  Agent9 服务端所在网络**，因此 MCP 地址必须是它可达的公网 HTTPS 地址，不能填
+  `127.0.0.1`、`localhost` 或内网 IP（否则 Agent9 会连自己容器内的回环地址并返回
+  500）。本机桥需要套 TLS 反代或临时公网隧道后再填地址；
 - `curl https://你的域名/mcp -X POST ...` 能返回 JSON 后再注册；
 - 桥内置的 Lake 协议测试（`pnpm lake:selftest`）不依赖真实账号；首次对真实
   Lake 联调若返回鉴权错误，请确认 DSN 的 host/数据库/warehouse 与 TiDB Cloud
