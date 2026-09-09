@@ -290,6 +290,9 @@ body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.6 -app
 .conn-form input, .conn-form select { background: var(--panel2); color: var(--text); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; }
 .conn-form .check-line { grid-column: 1 / -1; }
 .conn-form .actions { grid-column: 1 / -1; }
+.conn-deploy { border: 1px dashed var(--line); border-radius: 8px; padding: 8px 10px; background: var(--panel2); }
+.conn-deploy summary { cursor: pointer; color: var(--accent); font-size: 13px; }
+.conn-deploy pre { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 10px; font-size: 11px; line-height: 1.5; white-space: pre-wrap; color: var(--text); margin: 8px 0 0; }
 .cap-list { display: flex; flex-direction: column; gap: 6px; max-height: 300px; overflow-y: auto; }
 .cap-item { display: flex; gap: 8px; align-items: flex-start; font-size: 13px; color: var(--text); cursor: pointer; }
 .cap-item input { margin-top: 3px; }

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { McpSection } from './mcp';
 import LakeConnector from './lake';
+import EssentialConnector from './essential';
 
 const LARK_BASES = [
   { value: 'https://open.feishu.cn', label: '飞书（feishu.cn）' },
@@ -237,6 +238,14 @@ export default function Connectors({ client, live, agents, selectedAgentId, onNo
       </div>
 
       <LakeConnector
+        client={client}
+        live={live}
+        agents={agents}
+        selectedAgentId={selectedAgentId}
+        onNotice={onNotice}
+        onChanged={() => setMcpRefresh((v) => v + 1)}
+      />
+      <EssentialConnector
         client={client}
         live={live}
         agents={agents}

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { mcpEndpointIssue } from './lake';
+import { mcpEndpointIssue } from './mcp-connect';
 
 const friendly = (err) => err?.message ?? String(err);
 

@@ -66,6 +66,10 @@ tidbsa/
   TiDB Cloud Lake（官方 LakeSQL REST 协议：login → /v1/query → refresh，零 Python
   依赖），同样提供 streamable HTTP MCP 端点；在「专家·连接器 → 连接器」一键
   注册/激活/挂载到 Agent。详细步骤见 [docs/lake-mcp-path-a.md](docs/lake-mcp-path-a.md)。
+- **TiDB Cloud Essential（MySQL/MCP）连接器**：Essential 是 MySQL 兼容实例，
+  通过官方 TiDB MCP Server（`pytidb[mcp]`，streamable HTTP）暴露为远程端点；
+  在「专家·连接器 → 连接器」的 Essential 卡片里粘贴
+  `https://…/mcp` 即可一键注册/激活/挂载到 Agent。
 
 ## 常见问题
 
